@@ -10,6 +10,16 @@ const db = pgp({
 	max: 30
 });
 
+(async() => {
+	try {
+		await db.one("SELECT 1");
+	} catch (error) {
+		console.log("Connection failed, check if the database is up");
+		console.error(error);
+		process.exit(1);
+	}
+})();
+
 export async function initDataBase() {
 	let query1 = `SELECT EXISTS (
 		SELECT FROM information_schema.tables 

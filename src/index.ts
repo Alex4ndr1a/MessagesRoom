@@ -1,17 +1,39 @@
 import express, { Request, Response, NextFunction } from "express"
-import { readFileSync } from "fs";
+import { existsSync, readFileSync, statSync } from "fs";
 import * as https from "https";
 import { WebSocketServer } from "ws";
 import cookieParser from "cookie-parser";
 import { initDataBase, introduceCredentials, loginUser } from "./db_handler";
 import { randomBytes } from "crypto";
 import { createClient } from "redis";
+import path from "path";
 
 const app = express();
 const redisClient = createClient();
 
-const BUILD_DIR = process.cwd() + "/build/";
-const PUBLIC_DIR = process.cwd() + "/public/";
+function findBaseDirectory(processDir = process.cwd()): string | null {
+  let currentDir = statSync(processDir).isDirectory()
+    ? processDir
+    : path.dirname(processDir);
+
+  while (true) {
+    const candidate = path.join(currentDir, "package.json");
+
+    if (existsSync(candidate)) {
+      return path.dirname(candidate);
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) break;
+
+    currentDir = parentDir;
+  }
+
+  return null;
+}
+
+const BUILD_DIR = findBaseDirectory() + "/build/";
+const PUBLIC_DIR = findBaseDirectory() + "/public/";
 const REACT_DIR = PUBLIC_DIR + "/app/";
 
 const SESSION_DURATION = 60 * 60 * 24 * 7 * 1000 // Seven days
@@ -146,7 +168,7 @@ const httpsOptions: https.ServerOptions = {
 const server = https.createServer(httpsOptions, app);
 server.on("upgrade", async function(req, socket, head) {
 	const unauthorizedResponse = 
-		`HTTP/1.1 401 Unauthorized\r
+	`HTTP/1.1 401 Unauthorized\r
 	WWW-Authenticate: Basic realm="Access to the site"\r
 	Content-Type: text/plain\r
 	Content-Length: 23\r
