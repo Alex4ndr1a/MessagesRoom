@@ -2,19 +2,28 @@ import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
 const WS = new WebSocket("wss://localhost:8080/ws");
-const USER_NAME = function() { return document.cookie.split("=")[1] }();
+const USER_NAME = document.cookie.split("=")[1];
 
 function MessageApp() {
 	const [messages, addMessage] = useState([])
 	const inputFieldRef = useRef("");
 
+    
 	useEffect(() => {
-		WS.addEventListener("message", (event) => {
+        const handler = (event) => {
 			let messageData = JSON.parse(event.data);
-			if (messageData.user !== USER_NAME)
-				addMessage([...messages, messageData]);
-		});
-	}, [messages]);
+			if (messageData.user !== USER_NAME) {
+                addMessage(messages => [...messages, messageData]);
+            }
+		}
+
+		WS.addEventListener("message", handler);
+
+        return () => {
+            // For if the MessageApp component gets deleted
+            WS.removeEventListener("message", handler)
+        }
+	}, []);
 
 	function handleClick() {
 		const content = inputFieldRef.current.innerText;
@@ -69,7 +78,6 @@ function TextInput( {reference} ) {
 }
 
 function App() {
-  const [count, setCount] = useState(0)
 
   return (
     <>
