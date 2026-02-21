@@ -6,7 +6,8 @@
   "scripts": {
     "start": "redis-server &  node build/index.js",
     "build-app": "cd react-development && npm run build",
-	"debug": "node --inspect-brk=9229 build/index.js"
+    "debug": "node --inspect-brk=9229 build/index.js",
+    "test": "jest"
   },
   "author": "Matias A.",
   "license": "MIT",
@@ -23,9 +24,12 @@
     "@types/bcrypt": "^5.0.2",
     "@types/cookie-parser": "^1.4.8",
     "@types/express": "^5.0.1",
+    "@types/jest": "^30.0.0",
     "@types/node": "^22.15.14",
     "@types/pg-promise": "^0.0.28",
     "@types/redis": "^4.0.10",
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
   }
 }
