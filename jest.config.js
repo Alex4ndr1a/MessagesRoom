@@ -1,10 +1,10 @@
-// import type { Config } from 'jest'
 import { createDefaultEsmPreset } from 'ts-jest'
 
 const presetConfig = createDefaultEsmPreset({
-  //...options
+    stringifyContentPathRegex: /src\/tests\/*\.test\.ts/
 })
 
 export default {
   ...presetConfig,
+    testMatch: ["<rootDir>/src/tests/**/*.test.ts"]
 };
