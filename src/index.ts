@@ -88,7 +88,6 @@ async function authorizeUser(
     }
 }
 
-app.use(express.static(REACT_DIR));
 
 app.get("/", authorizeUser, async function (req, res) {
     let sessionId = await redisClient.keys(req.cookies.id);
@@ -106,6 +105,8 @@ app.get("/", authorizeUser, async function (req, res) {
         expires: sessionDates(),
     }).sendFile(REACT_DIR + "index.html");
 });
+
+app.use(express.static(REACT_DIR));
 
 app.route("/login")
     .get((_, res) => {
