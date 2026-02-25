@@ -7,7 +7,7 @@
     "start": "redis-server &  node build/index.js",
     "build-app": "cd react-development && npm run build",
     "debug": "node --inspect-brk=9229 build/index.js",
-    "test": "redis-server & npx jest"
+    "test": "npx jest --detectOpenHandles --forceExit"
   },
   "author": "Matias A.",
   "license": "MIT",
