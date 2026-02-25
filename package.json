@@ -7,7 +7,7 @@
     "start": "redis-server &  node build/index.js",
     "build-app": "cd react-development && npm run build",
     "debug": "node --inspect-brk=9229 build/index.js",
-    "test": "jest"
+    "test": "redis-server & npx jest"
   },
   "author": "Matias A.",
   "license": "MIT",
@@ -28,8 +28,10 @@
     "@types/node": "^22.15.14",
     "@types/pg-promise": "^0.0.28",
     "@types/redis": "^4.0.10",
+    "@types/supertest": "^6.0.3",
     "@types/ws": "^8.18.1",
     "jest": "^30.2.0",
+    "supertest": "^7.2.2",
     "ts-jest": "^29.4.6"
   }
 }
