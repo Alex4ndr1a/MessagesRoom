@@ -79,12 +79,12 @@ async function authorizeUser(
         }
 
         if (!sessionExists) {
-            res.status(401).redirect("/login");
+            res.redirect("/login");
         } else {
             return next();
         }
     } else {
-        return res.status(401).redirect("/login");
+        return res.redirect("/login");
     }
 }
 
