@@ -8,16 +8,16 @@ import { randomBytes } from "crypto";
 
 class RedisProcess {
     private redisProcess: () => ChildProcess;
-    private activeProcess: ChildProcess | null = null;
+    private processHandler: ChildProcess | null = null;
     constructor() {
         this.redisProcess = () => spawn("redis-server");
         console.log("redis-server process started");
     }
 
     public startProcess(): void {
-        this.activeProcess = this.redisProcess();
+        this.processHandler = this.redisProcess();
 
-        this.activeProcess.once("exit", () => {
+        this.processHandler.once("exit", () => {
             console.log("Process stopped (alegedlly)");
         });
     }
@@ -28,7 +28,7 @@ class RedisProcess {
             exit(1);
         }
 
-        this.activeProcess?.kill;
+        this.processHandler?.kill;
     }
 }
 
@@ -62,5 +62,12 @@ describe("Testing the GET endpoints of the application", () => {
 
         const response = await request(app).get("/").set("Cookie", [`id=${sessionId}`]);
         expect(response.status).toBe(200);
+    });
+
+    it("Get a 302 if the cookie is not valid", async() => {
+        const sessionId = randomBytes(32).toString("hex");
+        await request(app).get("/").set("Cookie", [`id=${sessionId}`])
+        .expect(302)
+        .expect("Location", "/login");
     });
 });
