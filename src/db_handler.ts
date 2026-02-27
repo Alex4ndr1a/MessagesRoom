@@ -10,6 +10,8 @@ const db = pgp({
     max: 30,
 });
 
+export default db;
+
 (async () => {
     try {
         await db.one("SELECT 1");
@@ -72,12 +74,12 @@ export async function introduceCredentials(
         let salt = await genSalt(10);
         let hashedPass = await hash(password, salt);
 
-        let check_user = await db.any(
+        let check_user = await db.oneOrNone(
             "SELECT 1 FROM users WHERE user_name = $1",
             [userName],
         );
 
-        if (check_user.length > 0) {
+        if (check_user) {
             throw new Error("CREDENTIAL_CONFLICT");
         }
 

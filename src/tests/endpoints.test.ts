@@ -5,16 +5,16 @@ import { app, redisClient } from "../app";
 import { ChildProcess, spawn } from "child_process";
 import { exit } from "process";
 import { randomBytes } from "crypto";
-import { response } from "express";
+import db, { introduceCredentials } from "../db_handler";
 
-class RedisProcess {
+class RedisServerProcess {
     private redisProcess: () => ChildProcess;
     private processHandler: ChildProcess | null = null;
     constructor() {
         this.redisProcess = () => spawn("redis-server");
     }
 
-    public startProcess(): void {
+    public start(): void {
         this.processHandler = this.redisProcess();
         console.log("redis-server process started");
 
@@ -28,7 +28,7 @@ class RedisProcess {
         });
     }
 
-    public killProcess(): void {
+    public kill(): void {
         if (process === null) {
             console.log("You haven't started the process, aborting");
             exit(1);
@@ -38,56 +38,112 @@ class RedisProcess {
     }
 }
 
-const redisProcess = new RedisProcess();
+const redisServerProcess = new RedisServerProcess();
 
 beforeAll(() => {
-    redisProcess.startProcess();
+    redisServerProcess.start();
     return redisClient.connect();
 });
 
 afterAll(() => {
     redisClient.destroy();
-    redisProcess.killProcess();
+    redisServerProcess.kill();
 });
 
-
 describe("Testing the GET endpoints of the application", () => {
-    it("Get a 200 response when requesting '/' if you have an authorization cookie", async() => {
+    it("Get a 200 response when requesting '/' if you have an authorization cookie", async () => {
         const sessionId = randomBytes(32).toString("hex");
         try {
             await redisClient.set(sessionId, 1);
         } catch (error) {
             console.log(`An error has ocurred: ${error}`);
             exit(1);
-        } 
+        }
 
-        const response = await request(app).get("/").set("Cookie", [`id=${sessionId}`]);
+        const response = await request(app)
+            .get("/")
+            .set("Cookie", [`id=${sessionId}`]);
         expect(response.status).toBe(200);
     });
 
-    it("Get a 302 redirection for normal requests to '/' (with no authorization cookie)", async() => {
+    it("Get a 302 redirection for normal requests to '/' (with no authorization cookie)", async () => {
         const response = await request(app).get("/");
         expect(response.status).toBe(302);
         expect(response.header.location).toBe("/login");
     });
 
-    it("Get a 302 if the cookie is not valid", async() => {
+    it("Get a 302 if the cookie is not valid", async () => {
         const sessionId = randomBytes(32).toString("hex");
-        await request(app).get("/").set("Cookie", [`id=${sessionId}`])
-        .expect(302)
-        .expect("Location", "/login");
+        await request(app)
+            .get("/")
+            .set("Cookie", [`id=${sessionId}`])
+            .expect(302)
+            .expect("Location", "/login");
     });
 
-    it("Get a 401 for introducing credentials to signin into the application", async() => {
-        const response = await request(app)
-        .post('/login')
-        .type('form')
-        .send({
-            email: 'test@example.com',
-            password: 'secret123'
+});
+
+describe("Testing the POST endpoints of the application", () => {
+    it("Get a 200 for introducing new credentials in the signin process", async() => {
+        const credentials = {
+            fullname: "exampleName",
+            email: "test2@example.com",
+            password: "password321"
+        }
+
+        // For this tests to always work, it is necessary that the user with the
+        // "fullname" value in the credentials objects is not registered in the
+        // database. Also, the users rows are constraint to delete their
+        // corresponding related row in the credentials table.
+        await db.none(
+            "DELETE FROM users WHERE user_name=$1",
+            [credentials.fullname]
+        )
+
+        await request(app).post("/signin").type("form").send(credentials)
+        .expect(302)
+        .expect("Location", "/");
+    });
+
+
+    it("Get a 401 for introducing a non-registered email", async () => {
+        const response = await request(app).post("/login").type("form").send({
+            email: "test@example.com",
+            password: "secret123",
         });
 
         expect(response.status).toBe(401);
-        expect(response.text.includes("There's no account with this email yet")).toBe(true);
+        expect(
+            response.text.includes("There's no account with this email yet"),
+        ).toBe(true);
+    });
+
+    it("Get a 401 for introducing a valid email but incorrect password", async () => {
+        const validCredentials = {
+            userName: "example",
+            email: "test1@example.com",
+            password: "password123",
+        };
+
+        try {
+            await introduceCredentials(
+                validCredentials.userName,
+                validCredentials.email,
+                validCredentials.password,
+            );
+        } catch (err) {
+            // The mock credentials were already introduced, so no need to do it
+            // again, this is just a fallback
+        }
+
+        const response = await request(app).post("/login").type("form").send({
+            email: validCredentials.email,
+            password: "notpassword123",
+        });
+
+        expect(response.status).toBe(401);
+        expect(
+            response.text.includes("Introduced password does not match with the email"),
+        ).toBe(true);
     });
 });
