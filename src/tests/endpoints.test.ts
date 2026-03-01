@@ -1,10 +1,9 @@
 import request from "supertest";
-// import { spawn } from "child_process";
-
-import { app, redisClient } from "../app";
 import { ChildProcess, spawn } from "child_process";
 import { exit } from "process";
 import { randomBytes } from "crypto";
+
+import { app, redisClient } from "../app";
 import db, { introduceCredentials } from "../db_handler";
 
 class RedisServerProcess {
@@ -80,31 +79,61 @@ describe("Testing the GET endpoints of the application", () => {
             .expect(302)
             .expect("Location", "/login");
     });
-
 });
 
 describe("Testing the POST endpoints of the application", () => {
-    it("Get a 200 for introducing new credentials in the signin process", async() => {
+    it("Get a 200 for introducing new credentials in the signin process", async () => {
         const credentials = {
-            fullname: "exampleName",
-            email: "test2@example.com",
-            password: "password321"
-        }
+            fullname: "signinExample1",
+            email: "new@signing.com",
+            password: "password321",
+        };
 
         // For this tests to always work, it is necessary that the user with the
         // "fullname" value in the credentials objects is not registered in the
         // database. Also, the users rows are constraint to delete their
         // corresponding related row in the credentials table.
-        await db.none(
-            "DELETE FROM users WHERE user_name=$1",
-            [credentials.fullname]
-        )
+        await db.none("DELETE FROM users WHERE user_name=$1", [
+            credentials.fullname,
+        ]);
 
-        await request(app).post("/signin").type("form").send(credentials)
-        .expect(302)
-        .expect("Location", "/");
+        await request(app)
+            .post("/signin")
+            .type("form")
+            .send(credentials)
+            .expect(302)
+            .expect("Location", "/");
     });
 
+    it("Get a 401 when introducing credentials that already exists when '/signin'", async () => {
+        const credentials = {
+            fullname: "signinExample2",
+            email: "signingexisting@credentials.com",
+            password: "password123",
+        };
+
+        try {
+            await introduceCredentials(
+                credentials.fullname,
+                credentials.email,
+                credentials.password,
+            );
+        } catch (err) {
+            // fallback
+        }
+
+        const response = await request(app)
+            .post("/signin")
+            .type("form")
+            .send(credentials);
+
+        expect(response.status).toBe(409);
+        expect(
+            response.text.includes(
+                "Sorry, the username you introduced is already in use",
+            ),
+        ).toBe(true);
+    });
 
     it("Get a 401 for introducing a non-registered email", async () => {
         const response = await request(app).post("/login").type("form").send({
@@ -120,7 +149,7 @@ describe("Testing the POST endpoints of the application", () => {
 
     it("Get a 401 for introducing a valid email but incorrect password", async () => {
         const validCredentials = {
-            userName: "example",
+            userName: "exampleLogin",
             email: "test1@example.com",
             password: "password123",
         };
@@ -143,7 +172,9 @@ describe("Testing the POST endpoints of the application", () => {
 
         expect(response.status).toBe(401);
         expect(
-            response.text.includes("Introduced password does not match with the email"),
+            response.text.includes(
+                "Introduced password does not match with the email",
+            ),
         ).toBe(true);
     });
 });
