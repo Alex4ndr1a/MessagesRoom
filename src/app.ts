@@ -1,7 +1,5 @@
 import express, { Request, Response, NextFunction } from "express";
-import { existsSync, readFileSync, statSync } from "fs";
-import { createServer } from "https";
-import { WebSocketServer } from "ws";
+import { existsSync, statSync } from "fs";
 import cookieParser from "cookie-parser";
 import { introduceCredentials, loginUser } from "./db_handler";
 import { randomBytes } from "crypto";
@@ -11,7 +9,7 @@ import path from "path";
 export const app = express();
 export const redisClient = createClient();
 
-function findBaseDirectory(): string | null {
+export function findBaseDirectory(): string | null {
     const processDir = process.cwd();
     let currentDir = statSync(processDir).isDirectory()
         ? processDir
@@ -33,7 +31,6 @@ function findBaseDirectory(): string | null {
     return null;
 }
 
-const BUILD_DIR = findBaseDirectory() + "/build/";
 const PUBLIC_DIR = findBaseDirectory() + "/public/";
 const REACT_DIR = PUBLIC_DIR + "app/";
 
@@ -185,53 +182,4 @@ app.route("/signin")
 
 app.use(isValidUrl);
 
-const httpsOptions = {
-    key: readFileSync(BUILD_DIR + "server.key"),
-    cert: readFileSync(BUILD_DIR + "server.cert"),
-};
-
-const server = createServer(httpsOptions, app);
-server.on("upgrade", async function (req, socket, head) {
-    const unauthorizedResponse = `HTTP/1.1 401 Unauthorized\r
-	WWW-Authenticate: Basic realm="Access to the site"\r
-	Content-Type: text/plain\r
-	Content-Length: 23\r
-	\r
-	Unauthorized access denied`;
-
-    let clientsCookie = req.headers.cookie;
-    if (!clientsCookie) {
-        socket.write(unauthorizedResponse);
-        socket.destroy();
-        return;
-    }
-
-    let sessionID = clientsCookie.match(/(?<=id=)\w+/);
-
-    if (!sessionID || !sessionID[0]) {
-        socket.write(unauthorizedResponse);
-        socket.destroy();
-    } else {
-        let sessionExists = await redisClient.get(sessionID[0]);
-        if (!sessionExists) {
-            socket.write(unauthorizedResponse);
-            socket.destroy();
-        }
-    }
-});
-
-const wss = new WebSocketServer({ server, path: "/ws" });
-
-wss.on("connection", function (ws, _) {
-    ws.on("error", () => console.log("There was an error"));
-
-    ws.on("message", function (msg) {
-        console.log(new String(msg));
-        // I noticed that is not necesary to parse the RawData type when
-        // sending it with a string in the "send" method
-        wss.clients.forEach((client) => client.send(`${msg}`));
-    });
-});
-
-
-export default server;
+export default app;

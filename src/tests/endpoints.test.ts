@@ -34,6 +34,7 @@ class RedisServerProcess {
         }
 
         this.processHandler!.kill();
+        
     }
 }
 
@@ -105,7 +106,7 @@ describe("Testing the POST endpoints of the application", () => {
             .expect("Location", "/");
     });
 
-    it("Get a 401 when introducing credentials that already exists when '/signin'", async () => {
+    it("Get a 401 when introducing credentials that already exist when '/signin'", async () => {
         const credentials = {
             fullname: "signinExample2",
             email: "signingexisting@credentials.com",
