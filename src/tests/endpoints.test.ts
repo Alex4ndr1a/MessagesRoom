@@ -3,8 +3,23 @@ import { ChildProcess, spawn } from "child_process";
 import { exit } from "process";
 import { randomBytes } from "crypto";
 
-import { app, redisClient } from "../app";
-import db, { introduceCredentials } from "../db_handler";
+import {AppHandler} from "../app";
+import { DatabaseHandler } from "../db_handler";
+import pgPromise from "pg-promise";
+
+
+const pgp = pgPromise();
+
+const db = pgp({
+    host: "localhost",
+    port: 5432,
+    database: "TestsMessageRoom", // pending
+    password: undefined,
+    max: 30,
+});
+
+const databaseHandler = new DatabaseHandler(db)
+let appHandler: AppHandler;
 
 class RedisServerProcess {
     private redisProcess: () => ChildProcess;
@@ -34,19 +49,19 @@ class RedisServerProcess {
         }
 
         this.processHandler!.kill();
-        
     }
 }
 
 const redisServerProcess = new RedisServerProcess();
 
-beforeAll(() => {
+beforeAll(async () => {
     redisServerProcess.start();
-    return redisClient.connect();
+    appHandler = await AppHandler.init(databaseHandler);
+    await appHandler.redisClient.connect();
 });
 
 afterAll(() => {
-    redisClient.destroy();
+    appHandler.redisClient.destroy();
     redisServerProcess.kill();
 });
 
@@ -54,27 +69,27 @@ describe("Testing the GET endpoints of the application", () => {
     it("Get a 200 response when requesting '/' if you have an authorization cookie", async () => {
         const sessionId = randomBytes(32).toString("hex");
         try {
-            await redisClient.set(sessionId, 1);
+            await appHandler.redisClient.set(sessionId, 1);
         } catch (error) {
             console.log(`An error has ocurred: ${error}`);
             exit(1);
         }
 
-        const response = await request(app)
+        await request(appHandler.app)
             .get("/")
-            .set("Cookie", [`id=${sessionId}`]);
-        expect(response.status).toBe(200);
+            .set("Cookie", [`id=${sessionId}`])
+            .expect(200);
     });
 
     it("Get a 302 redirection for normal requests to '/' (with no authorization cookie)", async () => {
-        const response = await request(app).get("/");
+        const response = await request(appHandler.app).get("/");
         expect(response.status).toBe(302);
         expect(response.header.location).toBe("/login");
     });
 
     it("Get a 302 if the cookie is not valid", async () => {
         const sessionId = randomBytes(32).toString("hex");
-        await request(app)
+        await request(appHandler.app)
             .get("/")
             .set("Cookie", [`id=${sessionId}`])
             .expect(302)
@@ -98,7 +113,7 @@ describe("Testing the POST endpoints of the application", () => {
             credentials.fullname,
         ]);
 
-        await request(app)
+        await request(appHandler.app)
             .post("/signin")
             .type("form")
             .send(credentials)
@@ -114,7 +129,7 @@ describe("Testing the POST endpoints of the application", () => {
         };
 
         try {
-            await introduceCredentials(
+            await databaseHandler.introduceCredentials(
                 credentials.fullname,
                 credentials.email,
                 credentials.password,
@@ -123,7 +138,7 @@ describe("Testing the POST endpoints of the application", () => {
             // fallback
         }
 
-        const response = await request(app)
+        const response = await request(appHandler.app)
             .post("/signin")
             .type("form")
             .send(credentials);
@@ -137,7 +152,7 @@ describe("Testing the POST endpoints of the application", () => {
     });
 
     it("Get a 401 for introducing a non-registered email", async () => {
-        const response = await request(app).post("/login").type("form").send({
+        const response = await request(appHandler.app).post("/login").type("form").send({
             email: "test@example.com",
             password: "secret123",
         });
@@ -156,7 +171,7 @@ describe("Testing the POST endpoints of the application", () => {
         };
 
         try {
-            await introduceCredentials(
+            await databaseHandler.introduceCredentials(
                 validCredentials.userName,
                 validCredentials.email,
                 validCredentials.password,
@@ -166,7 +181,7 @@ describe("Testing the POST endpoints of the application", () => {
             // again, this is just a fallback
         }
 
-        const response = await request(app).post("/login").type("form").send({
+        const response = await request(appHandler.app).post("/login").type("form").send({
             email: validCredentials.email,
             password: "notpassword123",
         });

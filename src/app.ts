@@ -1,13 +1,155 @@
 import express, { Request, Response, NextFunction } from "express";
 import { existsSync, statSync } from "fs";
 import cookieParser from "cookie-parser";
-import { introduceCredentials, loginUser } from "./db_handler";
 import { randomBytes } from "crypto";
 import { createClient } from "redis";
 import path from "path";
+import { DatabaseHandler } from "./db_handler";
 
-export const app = express();
-export const redisClient = createClient();
+export class AppHandler {
+    public readonly app = express();
+    public readonly redisClient;
+    private db: DatabaseHandler;
+    private constructor(db: DatabaseHandler) {
+        this.redisClient = createClient();
+        this.db = db;
+    }
+
+    public static async init(db: DatabaseHandler){
+        await db.initDataBase()
+        const appHandler = new AppHandler(db)
+        appHandler.initExpressApp();
+        return appHandler
+    }
+
+    private initExpressApp() {
+        this.app.use(express.urlencoded({ extended: true }));
+        this.app.use(cookieParser());
+        this.app.use(express.static(PUBLIC_DIR));
+
+        this.app.get("/", this.authorizeUser, async (req, res) => {
+            let sessionId = await this.redisClient.keys(req.cookies.id);
+
+            let newId = randomBytes(32).toString("hex");
+            await this.redisClient.set(newId, 1, { EX: SESSION_DURATION / 1000 });
+            if (sessionId) {
+                await this.redisClient.del(sessionId[0]);
+            }
+
+            res.cookie("id", `${newId}`, {
+                httpOnly: true,
+                secure: true,
+                expires: sessionDates(),
+            }).sendFile(REACT_DIR + "index.html");
+        });
+
+        this.app.use(express.static(REACT_DIR));
+
+        this.app.route("/login")
+        .get((_, res) => {
+            res.sendFile(PUBLIC_DIR + "login/login.html");
+        })
+        .post(async (req, res) => {
+            try {
+                let userName = await this.db.loginUser(req.body.email, req.body.password);
+                let sessionId = randomBytes(32).toString("hex");
+
+                await this.redisClient.set(sessionId, 1);
+
+                res.status(200)
+                .cookie("id", `${sessionId}`, {
+                    httpOnly: true,
+                    secure: true,
+                    expires: sessionDates(),
+                })
+                .cookie("username", `${userName}`, {
+                    secure: true,
+                    expires: sessionDates(),
+                })
+                .redirect("/");
+                // I don't know if this is a good way to do it, but its the only way
+                // I can think of
+            } catch (error) {
+                if (error instanceof Error) {
+                    if (error.message === "EMAIL_NOT_FOUND")
+                        res.status(401).send(
+                            "There's no account with this email yet\n",
+                        );
+                    else if (error.message === "INCORRECT_PASSWORD")
+                        res.status(401).send(
+                            "Introduced password does not match with the email\n",
+                        );
+                    else
+                        res.status(505).send("Internal server error");
+                }
+            }
+        });
+
+        this.app.route("/signin")
+        .get((_, res) => {
+            res.sendFile(PUBLIC_DIR + "signin/signin.html");
+        })
+        .post(async (req, res) => {
+            try {
+                let userName = await this.db.introduceCredentials(
+                    req.body.fullname,
+                    req.body.email,
+                    req.body.password,
+                );
+                let sessionId = randomBytes(32).toString("hex");
+
+                await this.redisClient.set(sessionId, 1);
+                res.status(200)
+                .cookie("id", `${sessionId}`, {
+                    httpOnly: true,
+                    secure: true,
+                    expires: sessionDates(),
+                })
+                .cookie("username", `${userName}`, {
+                    secure: true,
+                    expires: sessionDates(),
+                })
+                .redirect("/");
+            } catch (error) {
+                if (error instanceof Error) {
+                    if (error.message === "CREDENTIAL_CONFLICT")
+                        res.status(409).send(
+                            "Sorry, the username you introduced is already in use\n",
+                        );
+                        else res.status(505).send("Server Error, try again later\n");
+                }
+            }
+        });
+
+        this.app.use(isValidUrl);
+    }
+
+    private authorizeUser = async (
+        req: Request,
+        res: Response,
+        next: NextFunction,
+    ): Promise<void> => {
+        if (Object.keys(req.cookies).length > 0) {
+            let sessionExists: string | null = null;
+            try {
+                sessionExists = await this.redisClient.get(req.cookies.id);
+            } catch (err) {
+                res.status(500).send("Internal server error");
+                return;
+            }
+
+            if (!sessionExists) {
+                res.redirect("/login");
+            } else {
+                return next();
+            }
+        } else {
+            return res.redirect("/login");
+        }
+    }
+    
+}
+
 
 export function findBaseDirectory(): string | null {
     const processDir = process.cwd();
@@ -15,20 +157,20 @@ export function findBaseDirectory(): string | null {
         ? processDir
         : path.dirname(processDir);
 
-    while (true) {
-        const candidate = path.join(currentDir, "package.json");
+        while (true) {
+            const candidate = path.join(currentDir, "package.json");
 
-        if (existsSync(candidate)) {
-            return path.dirname(candidate);
+            if (existsSync(candidate)) {
+                return path.dirname(candidate);
+            }
+
+            const parentDir = path.dirname(currentDir);
+            if (parentDir === currentDir) break;
+
+            currentDir = parentDir;
         }
 
-        const parentDir = path.dirname(currentDir);
-        if (parentDir === currentDir) break;
-
-        currentDir = parentDir;
-    }
-
-    return null;
+        return null;
 }
 
 const PUBLIC_DIR = findBaseDirectory() + "/public/";
@@ -42,9 +184,6 @@ const sessionDates = () => {
     return now;
 };
 
-app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
-app.use(express.static(PUBLIC_DIR));
 
 const VALIDURLS = "^(/signin|/login|/)$";
 
@@ -61,125 +200,4 @@ function isValidUrl(req: Request, res: Response, next: NextFunction): void {
     return next();
 }
 
-async function authorizeUser(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-): Promise<void> {
-    if (Object.keys(req.cookies).length > 0) {
-        let sessionExists: string | null = null;
-        try {
-            sessionExists = await redisClient.get(req.cookies.id);
-        } catch (err) {
-            res.status(505).send("Internal server error");
-            return;
-        }
 
-        if (!sessionExists) {
-            res.redirect("/login");
-        } else {
-            return next();
-        }
-    } else {
-        return res.redirect("/login");
-    }
-}
-
-
-app.get("/", authorizeUser, async function (req, res) {
-    let sessionId = await redisClient.keys(req.cookies.id);
-
-    let newId = randomBytes(32).toString("hex");
-    await redisClient.set(newId, 1, { EX: SESSION_DURATION / 1000 });
-
-    if (sessionId) {
-        await redisClient.del(sessionId[0]);
-    }
-
-    res.cookie("id", `${newId}`, {
-        httpOnly: true,
-        secure: true,
-        expires: sessionDates(),
-    }).sendFile(REACT_DIR + "index.html");
-});
-
-app.use(express.static(REACT_DIR));
-
-app.route("/login")
-    .get((_, res) => {
-        res.sendFile(PUBLIC_DIR + "login/login.html");
-    })
-    .post(async function (req, res) {
-        try {
-            let userName = await loginUser(req.body.email, req.body.password);
-            let sessionId = randomBytes(32).toString("hex");
-
-            await redisClient.set(sessionId, 1);
-
-            res.status(200)
-                .cookie("id", `${sessionId}`, {
-                    httpOnly: true,
-                    secure: true,
-                    expires: sessionDates(),
-                })
-                .cookie("username", `${userName}`, {
-                    secure: true,
-                    expires: sessionDates(),
-                })
-                .redirect("/");
-            // I don't know if this is a good way to do it, but its the only way
-            // I can think of
-        } catch (error) {
-            if (error instanceof Error) {
-                if (error.message === "EMAIL_NOT_FOUND")
-                    res.status(401).send(
-                        "There's no account with this email yet\n",
-                    );
-                else if (error.message === "INCORRECT_PASSWORD")
-                    res.status(401).send(
-                        "Introduced password does not match with the email\n",
-                    );
-                else res.status(505).send("Internal server error");
-            }
-        }
-    });
-
-app.route("/signin")
-    .get((req, res) => {
-        res.sendFile(PUBLIC_DIR + "signin/signin.html");
-    })
-    .post(async function (req, res) {
-        try {
-            let userName = await introduceCredentials(
-                req.body.fullname,
-                req.body.email,
-                req.body.password,
-            );
-            let sessionId = randomBytes(32).toString("hex");
-
-            await redisClient.set(sessionId, 1);
-            res.status(200)
-                .cookie("id", `${sessionId}`, {
-                    httpOnly: true,
-                    secure: true,
-                    expires: sessionDates(),
-                })
-                .cookie("username", `${userName}`, {
-                    secure: true,
-                    expires: sessionDates(),
-                })
-                .redirect("/");
-        } catch (error) {
-            if (error instanceof Error) {
-                if (error.message === "CREDENTIAL_CONFLICT")
-                    res.status(409).send(
-                        "Sorry, the username you introduced is already in use\n",
-                    );
-                else res.status(505).send("Server Error, try again later\n");
-            }
-        }
-    });
-
-app.use(isValidUrl);
-
-export default app;
