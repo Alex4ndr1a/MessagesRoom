@@ -1,7 +1,3 @@
----
-language: en
-date: 2026-02-21
----
 # Real time chat room
 
 The main goal of this project is to create a real time chat room where people
@@ -19,7 +15,7 @@ other
 
 ### TODOs
 
-- [ ] Writing tests
+- [x] Writing tests
 
    I wanna write some tests that can allow for a fallback that can preserve the
    state and healthiness of the application
